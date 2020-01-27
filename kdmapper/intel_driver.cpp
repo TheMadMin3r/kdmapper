@@ -240,7 +240,7 @@ uint64_t intel_driver::GetKernelModuleExport(HANDLE device_handle, uint64_t kern
 	for (auto i = 0u; i < export_data->NumberOfNames; ++i)
 	{
 		const std::string current_function_name = std::string(reinterpret_cast<char*>(name_table[i] + delta));
-
+	
 		if (!_stricmp(current_function_name.c_str(), function_name.c_str()))
 		{
 			const auto function_ordinal = ordinal_table[i];
@@ -261,39 +261,29 @@ uint64_t intel_driver::GetKernelModuleExport(HANDLE device_handle, uint64_t kern
 	return 0;
 }
 
-bool intel_driver::GetNtGdiDdDDIReclaimAllocations2KernelInfo(HANDLE device_handle, uint64_t * out_kernel_function_ptr, uint64_t * out_kernel_original_function_address)
+bool intel_driver::GetNtGdiGetCurrentDpiInfoKernelInfo(HANDLE device_handle, uint64_t* out_kernel_function_ptr, BYTE* out_kernel_og_bytes)
 {
-	// 488b05650e1400 mov     rax, qword ptr [rip+offset]
-	// ff150f211600   call    cs:__guard_dispatch_icall_fptr
-
 	static uint64_t kernel_function_ptr = 0;
-	static uint64_t kernel_original_function_address = 0;
+	static BYTE kernel_function_og_bytes[12] = { 0 };
 
-	if (!kernel_function_ptr || !kernel_original_function_address)
+	if (!kernel_function_ptr || kernel_function_og_bytes[0] == 0)
 	{
-		const uint64_t kernel_NtGdiDdDDIReclaimAllocations2 = GetKernelModuleExport(device_handle, utils::GetKernelModuleAddress("win32kbase.sys"), "NtGdiDdDDIReclaimAllocations2");
-
-		if (!kernel_NtGdiDdDDIReclaimAllocations2)
+		const uint64_t kernel_NtGdiGetCurrentDpiInfo = GetKernelModuleExport(device_handle, utils::GetKernelModuleAddress("win32kfull.sys"), "NtGdiGetCurrentDpiInfo");
+	
+		if (!kernel_NtGdiGetCurrentDpiInfo)
 		{
-			std::cout << "[-] Failed to get export win32kbase.NtGdiDdDDIReclaimAllocations2" << std::endl;
+			std::cout << "[-] Failed to get export win32kfull.NtGdiGetCurrentDpiInfo" << std::endl;
 			return false;
 		}
 
-		const uint64_t kernel_function_ptr_offset_address = kernel_NtGdiDdDDIReclaimAllocations2 + 0x7;
-		int32_t function_ptr_offset = 0; // offset is a SIGNED integer
-
-		if (!ReadMemory(device_handle, kernel_function_ptr_offset_address, &function_ptr_offset, sizeof(function_ptr_offset)))
-			return false;
-
-		kernel_function_ptr = kernel_NtGdiDdDDIReclaimAllocations2 + 0xB + function_ptr_offset;
-
-		if (!ReadMemory(device_handle, kernel_function_ptr, &kernel_original_function_address, sizeof(kernel_original_function_address)))
+		kernel_function_ptr = kernel_NtGdiGetCurrentDpiInfo;
+	
+		if (!ReadMemory(device_handle, kernel_function_ptr, kernel_function_og_bytes, sizeof(kernel_function_og_bytes)))
 			return false;
 	}
 
 	*out_kernel_function_ptr = kernel_function_ptr;
-	*out_kernel_original_function_address = kernel_original_function_address;
-
+	out_kernel_og_bytes = kernel_function_og_bytes;
 	return true;
 }
 

