@@ -75,13 +75,15 @@ namespace intel_driver
 	uint64_t AllocatePool(HANDLE device_handle, nt::POOL_TYPE pool_type, uint64_t size);
 	bool FreePool(HANDLE device_handle, uint64_t address);
 	uint64_t GetKernelModuleExport(HANDLE device_handle, uint64_t kernel_module_base, const std::string& function_name);
-	bool GetNtGdiGetCurrentDpiInfoKernelInfo(HANDLE device_handle, uint64_t* out_kernel_function_ptr, BYTE* out_kernel_function_og_bytes);
+	bool GetNtGdiGetCurrentDpiInfoKernelInfo(HANDLE device_handle, uint64_t* out_kernel_function_ptr);
 	bool ClearMmUnloadedDrivers(HANDLE device_handle);
 
 	template<typename T, typename ...A>
 	bool CallKernelFunction(HANDLE device_handle, T* out_result, uint64_t kernel_function_address, const A ...arguments)
 	{
 		constexpr auto call_void = std::is_same_v<T, void>;
+
+		 
 
 		if constexpr (!call_void)
 		{
@@ -108,18 +110,22 @@ namespace intel_driver
 
 		uint64_t kernel_function_ptr = 0;
 		BYTE kernel_function_new_bytes[] = { 0x48, 0xB8, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFF, 0xE0 };
-		BYTE kernel_function_og_bytes[12];
+		
+		static BYTE kernel_function_og_bytes[sizeof(kernel_function_new_bytes)];
 
 		memcpy(kernel_function_new_bytes + 2, &kernel_function_address, sizeof(kernel_function_address));
 
 		
-		if (!GetNtGdiGetCurrentDpiInfoKernelInfo(device_handle, &kernel_function_ptr, kernel_function_og_bytes))
+		if (!GetNtGdiGetCurrentDpiInfoKernelInfo(device_handle, &kernel_function_ptr))
 			return false;
 
+		if (kernel_function_og_bytes[0] == 0)
+			if (!ReadMemory(device_handle, kernel_function_ptr, kernel_function_og_bytes, sizeof(kernel_function_og_bytes)))
+				return false;
+	
 		if (!WriteToReadOnlyMemory(device_handle, kernel_function_ptr, &kernel_function_new_bytes, sizeof(kernel_function_new_bytes)))
 			return false;
 
-		
 		if constexpr (!call_void)
 		{
 
@@ -133,6 +139,7 @@ namespace intel_driver
 		}
 
 		WriteToReadOnlyMemory(device_handle, kernel_function_ptr, &kernel_function_og_bytes, sizeof(kernel_function_og_bytes));
+
 
 		return true;
 	 }

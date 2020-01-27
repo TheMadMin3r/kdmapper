@@ -261,12 +261,11 @@ uint64_t intel_driver::GetKernelModuleExport(HANDLE device_handle, uint64_t kern
 	return 0;
 }
 
-bool intel_driver::GetNtGdiGetCurrentDpiInfoKernelInfo(HANDLE device_handle, uint64_t* out_kernel_function_ptr, BYTE* out_kernel_og_bytes)
+bool intel_driver::GetNtGdiGetCurrentDpiInfoKernelInfo(HANDLE device_handle, uint64_t* out_kernel_function_ptr)
 {
 	static uint64_t kernel_function_ptr = 0;
-	static BYTE kernel_function_og_bytes[12] = { 0 };
 
-	if (!kernel_function_ptr || kernel_function_og_bytes[0] == 0)
+	if (!kernel_function_ptr)
 	{
 		const uint64_t kernel_NtGdiGetCurrentDpiInfo = GetKernelModuleExport(device_handle, utils::GetKernelModuleAddress("win32kfull.sys"), "NtGdiGetCurrentDpiInfo");
 	
@@ -277,13 +276,9 @@ bool intel_driver::GetNtGdiGetCurrentDpiInfoKernelInfo(HANDLE device_handle, uin
 		}
 
 		kernel_function_ptr = kernel_NtGdiGetCurrentDpiInfo;
-	
-		if (!ReadMemory(device_handle, kernel_function_ptr, kernel_function_og_bytes, sizeof(kernel_function_og_bytes)))
-			return false;
 	}
 
 	*out_kernel_function_ptr = kernel_function_ptr;
-	out_kernel_og_bytes = kernel_function_og_bytes;
 	return true;
 }
 
